@@ -1,0 +1,185 @@
+---
+title: "ECO 395 Homework 3:Chengkan Tao"
+author:
+  - chengkan_tao
+  - 
+  - 
+documentclass: ctexart
+keywords:
+  - 中文
+  - R Markdown
+output:
+  rticles::ctex
+---
+```{r eval=FALSE}
+devtools::install_github(c('rstudio/rmarkdown', 'yihui/tinytex'))
+tinytex::install_tinytex()
+```
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r, include=FALSE}
+options(tinytex.verbose = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+URL:https://github.com/chengkan-Tao/eco395-hw3
+## Q1
+We can easily find correlations between police and crime through data, but not causality. There may exist some unknown causalities. We need to find what cause what, not just get a messy result when running the regression of "Crime" on "Police".
+
+They find an example where they have a lot of police unrelated to crime. Researchers use terrorism alert system, and they want to find out what happens to crime if unrelated police increases. They also use ridership to measure victims.
+In the figure, the first column shows that high alert(police) has a negative effect on crime, and R^2 =0.14shows that only 12% of variance of crime is explained by this model. In this model, 
+The second column shows that high alert(police) has a negative effect on crime and ridership has a huge positive effect on crime. And 17% of variance of crime is explained by these two variable.
+
+In the conversation, researchers assume ridership is highly correlated to victims and want to find the relationship between crime and alert through the change of ridership after there is a alert. And, they find ridership levels on the Metro system were not diminished on high-terror days, which means the number of victims remained same.
+
+In the first column, if there's a high alert in District 1, there are about 2.621 units decreasing in daily total number of crime in D.C. holding all else fixed, and the coefficient is statistically significant at the 1% level.  And there's about 0.571 units decreasing in daily total number of crime in D.C.  if a high alert happens in other districts, hold all else fixed. But the coefficient is not statistically significant. 1 percent increase in midday ridership will lead to 2.477units increase in daily total number of crime in D.C. 
+so, ridership or tourists are positively correlated to crime. Hiring more cops in District 1 can let local crime go down.
+
+
+#Q2
+```{r, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(randomForest)
+library(gbm)
+library(pdp)
+library(modelr)
+library(rsample)
+library(foreach)
+library(mosaic)
+library(ggplot2)
+library(tree)
+library(rpart)
+library(rpart.plot)
+greenbuildings <- read.csv("~/GitHub/DATA MINING/ECO395M/data/greenbuildings.csv",header = TRUE)
+revenue_year_square = greenbuildings$Rent*greenbuildings$leasing_rate
+greenbuildings_update = mutate(greenbuildings,revenue_year_square = greenbuildings$Rent*greenbuildings$leasing_rate)
+
+greenbuildings_split = initial_split(greenbuildings_update)
+greenbuildings_train = training(greenbuildings_split)
+greenbuildings_test = testing(greenbuildings_split)
+```
+1) I try to use a predict model for revenue per square foot per calendar year and find DP of each features.
+
+2) I use age, size, stories, renovated, amenities, cluster, Precipitation, LEED, Energystar, cd_total_07, hd_total07, Gas_Costs, Electricity_Costs, City_Market_Rent to build a random forest model for revenue.
+
+
+
+
+
+
+```{r,echo=FALSE}
+tree = rpart(revenue_year_square ~ age + size +stories+renovated+amenities+ cluster+Precipitation+ LEED + Energystar+cd_total_07+hd_total07+Gas_Costs+Electricity_Costs + City_Market_Rent, 
+             data = greenbuildings_train,control = rpart.control(cp = 0.00001))
+
+forest = randomForest(revenue_year_square ~ age + size +stories+renovated+amenities+ cluster+Precipitation+ LEED + Energystar+cd_total_07+hd_total07+Gas_Costs+Electricity_Costs + City_Market_Rent, data = greenbuildings_train)
+
+plot(forest)
+
+
+```
+The plot is estimated using out-of-bag.We can find when there are about 300 trees, the mean squared error doesn't go down largely.
+```{r, echo=FALSE}
+rmse(forest, greenbuildings_test)
+```
+The root mean squared error is about 800, which uses the test subset. And I think it is comparably small.
+
+
+
+
+```{r, echo=FALSE}
+partialPlot(forest, greenbuildings_test, 'LEED', las=1)
+partialPlot(forest, greenbuildings_test, 'Energystar', las=1)
+partialPlot(forest, greenbuildings_test, 'City_Market_Rent', las=1)
+
+```
+we can find partial dependence of two dummy variables increase when variables goes from 0 to 1, and partial dependence of city_market_rent also goes up when the feature increases.
+
+#Q3
+```{r,include=FALSE}
+CAhousing <- read.csv("~/GitHub/DATA MINING/ECO395M/data/CAhousing.csv")
+CAhousing = mutate(CAhousing,
+                            log_totalrooms = log(totalRooms))
+
+
+lm0 = lm(medianHouseValue ~ 1, data=CAhousing)
+lm_forward = step(lm0, direction='forward',
+                  scope=~(longitude + latitude +housingMedianAge + log_totalrooms+totalBedrooms+population+households+medianIncome)^3)
+
+```
+In this question, I try to build a model to predict medianhousevalue. And I will use forward selection to build a model including three order polynomial expansion and interaction. The model contains all the variables, and there a log transformation of totalrooms.
+
+```{r,echo=FALSE}
+coef(lm_forward)
+
+```
+this is the model by forward selection
+
+
+
+```{r, include=FALSE}
+rmse = function(y, yhat) {
+  sqrt( mean( (y - yhat)^2 ) )
+}
+n = nrow(CAhousing)
+n_train = round(0.8*n)
+n_test = n - n_train
+rmse = do(100)*{
+  train_cases = sample.int(n, n_train, replace=FALSE)
+  test_cases = setdiff(1:n, train_cases)
+  CAhousing_train = CAhousing[train_cases,]
+  CAhousing_test = CAhousing[test_cases,]
+  lm = update(lm_forward, data=CAhousing_train)
+ 
+  yhat_test1 = predict(lm, CAhousing_test)
+  
+  c(rmse(CAhousing_test$medianHouseValue, yhat_test1))
+}
+
+```
+and we use bootstrape to get a root mean square error showing out of sample accuracy
+```{r,echo=FALSE}
+colMeans(rmse)
+```
+
+
+
+
+
+```{r, include=FALSE}
+lm1 = update(lm_forward,data = CAhousing)
+```
+
+
+```{r,echo=FALSE}
+CA = CAhousing %>%
+  mutate(VALUE_pred = predict(lm1),residual = residuals(lm1)) %>%
+  arrange(longitude)
+housing = mosaic::sample(CA, 5000)
+
+ggplot(CAhousing) + 
+  geom_point(aes(x=latitude, y=longitude, color=medianHouseValue)) + 
+  scale_color_continuous(type = "viridis")
+```
+
+we can find some interactions. When latitude is equal to 40, the colour doesn't change a lot and when latitude is 33 or 37.5, the colour changes a lot. 
+```{r, echo=FALSE}
+ggplot(housing) + 
+  geom_point(aes(x=latitude, y=longitude, color=VALUE_pred)) + 
+  scale_color_continuous(type = "viridis")
+```
+
+The predict value is much lower because it is obvious there are more blue points. The interaction still exists and the relationship between value and latitude and relationship between longitude and value remain same
+```{r, echo=FALSE}
+ggplot(housing) + 
+  geom_point(aes(x=latitude, y=longitude, color=residual)) + 
+  scale_color_continuous(type = "viridis")
+```
+
